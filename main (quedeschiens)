@@ -1,0 +1,110 @@
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+
+public class MonProjet {
+    public static void main(String[] args) {
+        final int tailleBloc = 1024; // Taille d'un bloc FFT
+        iNeurone neurone = new NeuroneHeavyside(tailleBloc); // Neurone avec taille d'entrée = FFT
+
+        System.out.println("=== 📚 Entraînement ===");
+
+        ArrayList<float[]> listeEntrees = new ArrayList<>();
+        ArrayList<Float> listeSorties = new ArrayList<>();
+
+        // Apprentissage avec le fichier de chat
+        Son chat = new Son("train/cats/cats.wav");
+        float[] donneesChat = chat.donnees();
+        for (int i = 0; i + tailleBloc <= donneesChat.length; i += tailleBloc) {
+            float[] bloc = Arrays.copyOfRange(donneesChat, i, i + tailleBloc);
+            Complexe[] entreeC = new Complexe[tailleBloc];
+            for (int j = 0; j < tailleBloc; j++)
+                entreeC[j] = new ComplexeCartesien(bloc[j], 0);
+            Complexe[] fft = FFTCplx.appliqueSur(entreeC);
+            float[] entree = new float[tailleBloc];
+            for (int j = 0; j < tailleBloc; j++)
+                entree[j] = (float) fft[j].mod();
+
+            listeEntrees.add(entree);
+            listeSorties.add(0.0f); // Chat = 0
+        }
+
+        // Apprentissage avec le fichier de chien
+        Son chien = new Son("train/dogs/dogs.wav");
+        float[] donneesChien = chien.donnees();
+        for (int i = 0; i + tailleBloc <= donneesChien.length; i += tailleBloc) {
+            float[] bloc = Arrays.copyOfRange(donneesChien, i, i + tailleBloc);
+            Complexe[] entreeC = new Complexe[tailleBloc];
+            for (int j = 0; j < tailleBloc; j++)
+                entreeC[j] = new ComplexeCartesien(bloc[j], 0);
+            Complexe[] fft = FFTCplx.appliqueSur(entreeC);
+            float[] entree = new float[tailleBloc];
+            for (int j = 0; j < tailleBloc; j++)
+                entree[j] = (float) fft[j].mod();
+
+            listeEntrees.add(entree);
+            listeSorties.add(1.0f); // Chien = 1
+        }
+
+        // Conversion en tableaux
+        float[][] entrees = new float[listeEntrees.size()][tailleBloc];
+        float[] sorties = new float[listeSorties.size()];
+        for (int i = 0; i < listeEntrees.size(); i++) {
+            entrees[i] = listeEntrees.get(i);
+            sorties[i] = listeSorties.get(i);
+        }
+
+        // Entraînement
+        neurone.apprentissage(entrees, sorties, 0.01f);
+
+        System.out.println("=== 🔎 Tests ===");
+
+        // Test des sons
+        testerDossier("test/cats", neurone, tailleBloc);
+        testerDossier("test/dogs", neurone, tailleBloc);
+    }
+
+    public static void testerDossier(String nomDossier, iNeurone neurone, int tailleBloc) {
+        File dossier = new File(nomDossier);
+        File[] fichiers = dossier.listFiles();
+        if (fichiers == null) return;
+
+        int total = 0;
+        int bienClasses = 0;
+
+        for (File fichier : fichiers) {
+            if (fichier.getName().endsWith(".wav")) {
+                Son son = new Son(fichier.getPath());
+                float[] donnees = son.donnees();
+
+                float scoreTotal = 0;
+                int nbBlocs = 0;
+                for (int i = 0; i + tailleBloc <= donnees.length; i += tailleBloc) {
+                    float[] bloc = Arrays.copyOfRange(donnees, i, i + tailleBloc);
+                    Complexe[] entreeC = new Complexe[tailleBloc];
+                    for (int j = 0; j < tailleBloc; j++)
+                        entreeC[j] = new ComplexeCartesien(bloc[j], 0);
+                    Complexe[] fft = FFTCplx.appliqueSur(entreeC);
+                    float[] entree = new float[tailleBloc];
+                    for (int j = 0; j < tailleBloc; j++)
+                        entree[j] = (float) fft[j].mod();
+
+                    neurone.metAJour(entree);
+                    scoreTotal += neurone.sortie();
+                    nbBlocs++;
+                }
+
+                float moyenne = scoreTotal / nbBlocs;
+                String prediction = moyenne > 0.5f ? "Chien" : "Chat";
+
+                String vraiLabel = nomDossier.contains("cats") ? "Chat" : "Chien";
+                if (prediction.equals(vraiLabel)) bienClasses++;
+                total++;
+
+                System.out.println(fichier.getName() + " → Prédit : " + prediction + " (score : " + moyenne + ")");
+            }
+        }
+
+        System.out.println("\n📊 Précision : " + bienClasses + " / " + total + " (" + (100 * bienClasses / total) + "%)");
+    }
+}
