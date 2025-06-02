@@ -1,0 +1,292 @@
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+
+
+
+public class MonProjet {
+
+public static void main(String[] args) {
+    System.out.println("========== CHARGEMENT DES SONS ==========");
+    Son chatSon = chargerSon("train/cats/cats.wav");
+    Son chienSon = chargerSon("train/dogs/dogs.wav");
+
+    int tailleBloc = 16384;
+
+    System.out.println("\n========== DÉCOUPAGE EN BLOCS ==========");
+    float[][] blocsChat = decouperEnBlocs(chatSon, tailleBloc);
+    float[][] blocsChien = decouperEnBlocs(chienSon, tailleBloc);
+
+    //appliquerFFT(blocsChat, "Chat");
+    //appliquerFFT(blocsChien, "Chien");
+
+    System.out.println("\n========== EXTRACTION DES VECTEURS D'ENTRÉE ==========");
+    List<float[]> entreesChats = extraireVecteurs(blocsChat, 0.0f);
+    List<float[]> entreesChiens = extraireVecteurs(blocsChien, 1.0f);
+
+    System.out.println("\n========== GÉNÉRATION DES LABELS ==========");
+    float[] resultatsChats = creerLabels(entreesChats.size(), 0.0f);
+    float[] resultatsChiens = creerLabels(entreesChiens.size(), 1.0f);
+
+    System.out.println("\n========== ENTRAINEMENT DU NEURONE ==========");
+    iNeurone neurone = entrainerNeurone(entreesChats, resultatsChats, entreesChiens, resultatsChiens);
+
+
+
+
+
+System.out.println("\n=========== 🔍 TEST SUR CHATS ===========");
+testerNeurone("test/cats", 0.0f, neurone);
+
+System.out.println("\n=========== 🔍 TEST SUR CHIENS ===========");
+testerNeurone("test/dogs", 1.0f, neurone);
+
+
+    
+}
+
+    
+
+
+
+
+
+
+
+
+    public static Son chargerSon(String chemin) {
+        System.out.println("Chargement du fichier : " + chemin);
+        Son son = new Son(chemin);
+        System.out.println("Fichier chargé : " + son.donnees().length + " échantillons à " + son.frequence() + " Hz");
+        return son;
+    }
+
+    public static float[][] decouperEnBlocs(Son son, int tailleBloc) {
+        int nbBlocs = son.donnees().length / tailleBloc;
+        float[][] blocs = new float[nbBlocs][tailleBloc];
+
+        for (int i = 0; i < nbBlocs; ++i) {
+            blocs[i] = son.bloc_deTaille(i, tailleBloc);
+        }
+
+        System.out.println(nbBlocs + " blocs extraits de taille " + tailleBloc + " échantillons");
+        return blocs;
+    }
+
+
+
+
+    
+
+    public static void appliquerFFT(float[][] blocs, String label) {
+    for (int i = 0; i < blocs.length; ++i) {
+        float[] bloc = blocs[i];
+
+        // 🔒 Sécurité : ignorer les blocs vides ou non puissances de 2
+        if (bloc == null || bloc.length == 0 || (bloc.length & (bloc.length - 1)) != 0) {
+            System.out.println("⚠️ Bloc " + i + " ignoré (longueur invalide)");
+            continue;
+        }
+
+        // Convertir float[] en Complexe[]
+        Complexe[] signalComplexe = new Complexe[bloc.length];
+        for (int j = 0; j < bloc.length; ++j) {
+            signalComplexe[j] = new ComplexeCartesien(bloc[j], 0.0);
+        }
+
+        // Appliquer la FFT
+        Complexe[] fftResultat = FFTCplx.appliqueSur(signalComplexe);
+
+        // 🔎 Vérifier qu’aucune valeur n’est null
+        if (fftResultat == null || fftResultat[0] == null) {
+            System.out.println("⚠️ FFT invalide pour bloc " + i);
+            continue;
+        }
+
+        // Afficher les premières valeurs
+        System.out.println("Bloc " + i + " - FFT (" + label + ") :");
+        for (int j = 0; j < Math.min(10, fftResultat.length); ++j) {
+            if (fftResultat[j] != null)
+                System.out.printf("  Freq %d: Mod=%.2f, Arg=%.2f rad\n", j, fftResultat[j].mod(), fftResultat[j].arg());
+        }
+    }
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+    public static float[] normaliserModules(Complexe[] fft) {
+    int n = fft.length / 2; // on garde la moitié utile
+    float[] modules = new float[n];
+
+    double max = 0.0;
+    for (int i = 0; i < n; ++i) {
+        modules[i] = (float) fft[i].mod();
+        if (modules[i] > max) max = modules[i];
+    }
+
+    // Normalisation entre 0 et 1
+    if (max > 0) {
+        for (int i = 0; i < n; ++i) {
+            modules[i] /= (float) max;
+        }
+    }
+
+    return modules;
+    }
+
+
+
+
+    public static List<float[]> extraireVecteurs(float[][] blocs, float label) {
+    List<float[]> liste = new ArrayList<>();
+
+    for (int i = 0; i < blocs.length; ++i) {
+        float[] bloc = blocs[i];
+
+        if (!estPuissanceDe2(bloc.length)) {
+            System.out.println("?? Bloc " + i + " ignoré (non puissance de 2)");
+            continue;
+        }
+
+        Complexe[] signal = new Complexe[bloc.length];
+        for (int j = 0; j < bloc.length; ++j) {
+            signal[j] = new ComplexeCartesien(bloc[j], 0);
+        }
+
+        Complexe[] fft = FFTCplx.appliqueSur(signal);
+        float[] modulesNormalises = normaliserModules(fft);
+        liste.add(modulesNormalises);
+    }
+
+    return liste;
+    }
+
+
+
+
+
+    public static boolean estPuissanceDe2(int n) {
+    return (n > 0) && ((n & (n - 1)) == 0);
+    }
+
+
+
+
+
+
+
+
+
+
+    public static float[] creerLabels(int taille, float valeur) {
+    float[] labels = new float[taille];
+    Arrays.fill(labels, valeur);
+    return labels;
+    }   
+
+
+
+
+    public static iNeurone entrainerNeurone(List<float[]> chats, float[] resultatsChats, List<float[]> chiens, float[] resultatsChiens) {
+
+    // Fusion des entrées
+    List<float[]> listeEntrees = new ArrayList<>();
+    listeEntrees.addAll(chats);
+    listeEntrees.addAll(chiens);
+
+    float[][] tableauEntrees = new float[listeEntrees.size()][];
+    for (int i = 0; i < listeEntrees.size(); ++i)
+        tableauEntrees[i] = listeEntrees.get(i);
+
+    // Fusion des résultats
+    float[] tableauResultats = new float[resultatsChats.length + resultatsChiens.length];
+    System.arraycopy(resultatsChats, 0, tableauResultats, 0, resultatsChats.length);
+    System.arraycopy(resultatsChiens, 0, tableauResultats, resultatsChats.length, resultatsChiens.length);
+
+    // Création et entraînement
+    iNeurone neurone = new NeuroneHeavyside(tableauEntrees[0].length);
+    System.out.println("Apprentissage…");
+    neurone.apprentissage(tableauEntrees, tableauResultats, 0.001f);
+
+    // Vérification
+    for (int i = 0; i < tableauEntrees.length; ++i) {
+        neurone.metAJour(tableauEntrees[i]);
+        System.out.printf("Exemple %d : attendu=%.1f, prédit=%.1f\n", i, tableauResultats[i], neurone.sortie());
+    }
+    return neurone;
+    }
+
+
+
+
+
+    
+    public static void testerNeurone(String dossier, float label, iNeurone neurone) {
+    File dossierTest = new File(dossier);
+    File[] fichiers = dossierTest.listFiles();
+
+    if (fichiers == null || fichiers.length == 0) {
+        System.out.println("⚠️ Aucun fichier trouvé dans : " + dossier);
+        return;
+    }
+
+    int bonnePredictions = 0;
+    int total = 0;
+
+    for (File fichier : fichiers) {
+        if (!fichier.getName().endsWith(".wav")) continue;
+
+        System.out.println("\n📂 Test sur : " + fichier.getName());
+        Son son = chargerSon(fichier.getAbsolutePath());
+
+        float[][] blocs = decouperEnBlocs(son, 16384);
+        List<float[]> vecteurs = extraireVecteurs(blocs, label);
+
+        for (float[] v : vecteurs) {
+            neurone.metAJour(v);
+            float prediction = neurone.sortie();
+            float sortieArrondie = prediction < 0.5f ? 0.0f : 1.0f;
+            System.out.printf("  ➤ Sortie brute : %.4f, Prédit : %.0f, Attendu : %.0f\n", prediction, sortieArrondie, label);
+            if (sortieArrondie == label) bonnePredictions++;
+            total++;
+        }
+    }
+
+    System.out.printf("\n✅ Résultat global pour label %.0f : %.2f%% de bonnes prédictions (%d/%d)\n",
+            label, 100.0 * bonnePredictions / total, bonnePredictions, total);
+    }
+
+
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+
+
+}
